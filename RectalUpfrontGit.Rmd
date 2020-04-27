@@ -18,12 +18,13 @@ library(haven)
 library(lmtest)
 library(glmnet)
 library(nnet)
+#Reading in data
+  RectalData <- read_dta("#datapath")
 ```
 
 ### Selecting variables from NCDB data base that are useful
 ```{r}
-#Reading in data
-  RectalData <- read_dta("C:/Users/s197002/OneDrive - University of Texas Southwestern/UpFrontSurgery/020320 Surg Alone Rectal.dta")
+
 
   dataset <- RectalData %>% select(
                                            RX_SUMM_SYSTEMIC_SUR_SEQ,RX_SUMM_RADIATION, RX_SUMM_SURGRAD_SEQ,
