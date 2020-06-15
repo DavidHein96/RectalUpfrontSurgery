@@ -11,7 +11,7 @@ output:
 
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, fig.width=12, fig.height=8)
+knitr::opts_chunk$set(echo = TRUE, fig.width=8, fig.height=4)
 library(tidyverse)
 library(haven)
 library(lmtest)
@@ -19,12 +19,14 @@ library(glmnet)
 library(nnet)
 ```
 
+
 ### Selecting variables from NCDB data base that are useful
 ```{r}
 #Reading in data
-RectalData <- read_dta("020320 Surg Alone Rectal.dta")
 
-dataset <- RectalData %>% select(
+Rectal_Data <- read_dta("C:/Users/Dave Work/OneDrive - University of Texas Southwestern/UpFrontSurgery/020320 Surg Alone Rectal.dta")
+ 
+Rectal_Data <- Rectal_Data %>% select(
                                            RX_SUMM_SYSTEMIC_SUR_SEQ,RX_SUMM_RADIATION, RX_SUMM_SURGRAD_SEQ,
                                            RX_SUMM_CHEMO,  SEX,MED_INC_QUAR_12, AGE,
                                            PUF_CASE_ID, raceb, TNM_CLIN_STAGE_GROUP,TNM_PATH_STAGE_GROUP,SEQUENCE_NUMBER, HISTOLOGY, 
@@ -33,45 +35,40 @@ dataset <- RectalData %>% select(
 )
 
 #getting rid of NAs and Nulls
-df1 <- dataset
-df1 <- na.omit(dataset)
+df1 <- na.omit(Rectal_Data )
 ```
 
 
 ### Cleaning up data
 ```{r}
-#drop if missing RX_SUMM_SYSTEMIC_SUR_SEQ, interoperative, or sequence unknown
-df1 <- df1[!(df1$RX_SUMM_SYSTEMIC_SUR_SEQ == 6 | df1$RX_SUMM_SYSTEMIC_SUR_SEQ == 7 | df1$RX_SUMM_SYSTEMIC_SUR_SEQ == 9),]
-
-#drop if RX_SUMM_RADIATION is unknown
-df1 <- df1[!(df1$RX_SUMM_RADIATION ==9),]
-
-#drop if RX_SUMM_SURGRAD_SEQ is unkown or if interoperative
-df1 <- df1[!(df1$RX_SUMM_SURGRAD_SEQ == 6 | df1$RX_SUMM_SURGRAD_SEQ == 9),]
-	
-#drop if RX_SUMM_CHEMO is unknown or not mentioned
-df1 <- df1[!(df1$RX_SUMM_CHEMO == 88 | df1$RX_SUMM_CHEMO == 99),]
+# Drop if information regarding radiation, chemo, or surgery is unknown, missing, or if radiation was ineroperative
+df1 <- df1[(
+              df1$RX_SUMM_SYSTEMIC_SUR_SEQ != 6 & df1$RX_SUMM_SYSTEMIC_SUR_SEQ != 7 & df1$RX_SUMM_SYSTEMIC_SUR_SEQ != 9 &
+              df1$RX_SUMM_RADIATION != 9 & df1$RX_SUMM_SURGRAD_SEQ != 6 & df1$RX_SUMM_SURGRAD_SEQ != 9 & df1$RX_SUMM_CHEMO != 88 &
+              df1$RX_SUMM_CHEMO != 99
+              ),]
 
 #drop if not stage 2 or 3 
 df1 <- df1 %>% mutate(TNM_CLIN_STAGE_GROUP, stage3 = ifelse(   str_detect(TNM_CLIN_STAGE_GROUP,"2") == TRUE,"2","0")) 
 df1$stage3[str_detect(df1$TNM_CLIN_STAGE_GROUP,"3") == TRUE] <- "3"
 df1 <- df1[!(df1$stage3 =="0"),]
 
-#sequence number
+#Drop if not first primary 
 df1 <- df1[(df1$SEQUENCE_NUMBER =="00" | df1$SEQUENCE_NUMBER =="01"),]
 
-#drop if histology not adenocarcinoma 8140, 8210, 8260-63, 8470, 8480, and 8481
-df1 <- df1[(df1$HISTOLOGY ==8140 | df1$HISTOLOGY ==8210 | df1$HISTOLOGY ==8260 | df1$HISTOLOGY ==8261 | df1$HISTOLOGY ==8262 | df1$HISTOLOGY ==8263 | df1$HISTOLOGY ==8480 | df1$HISTOLOGY ==8481),]
+#drop if histology not adenocarcinoma 
+df1 <- df1%>%filter(HISTOLOGY %in% c(8140,8210,8260,8261,8262,8263,8480,8481))
 
-#drop if did not get def surg 
-df1 <- df1[(df1$RX_SUMM_SURG_PRIM_SITE==40 | df1$RX_SUMM_SURG_PRIM_SITE==30 | df1$RX_SUMM_SURG_PRIM_SITE==50 | df1$RX_SUMM_SURG_PRIM_SITE==60 | df1$RX_SUMM_SURG_PRIM_SITE==70 | df1$RX_SUMM_SURG_PRIM_SITE==80),]
+#drop if did not get defin surg 
+df1 <- df1%>%filter(RX_SUMM_SURG_PRIM_SITE %in% c(40,30,50,60,70,80))
+
 ```
 
 
 ### Assigning new variables 
 ```{r}
 #Assigning neo adjuvant if got rad OR chemo before surg
-df1$surg4
+df1$surg4 <- NA
 df1$surg4[df1$RX_SUMM_SURGRAD_SEQ == 2 | df1$RX_SUMM_SURGRAD_SEQ == 4] <- 0
 df1$surg4[df1$RX_SUMM_SYSTEMIC_SUR_SEQ == 2 | df1$RX_SUMM_SYSTEMIC_SUR_SEQ == 4] <- 0
 
@@ -91,7 +88,7 @@ df1$surg4[df1$RX_SUMM_RADIATION==0 & df1$RX_SUMM_CHEMO==87] <- 1
 df1 <- na.omit(df1)
 
 #age group under 45, 45-65, 65 and up AGE
-df1$agegroup
+df1$agegroup <- NA
 df1$agegroup[df1$AGE<=45]<-0
 df1$agegroup[df1$AGE>=46]<-1
 df1$agegroup[df1$AGE>=65]<-2
@@ -103,11 +100,9 @@ df1 <- df1 %>% mutate(CLASS_OF_CASE, treatnotatdiag = ifelse(CLASS_OF_CASE == 0 
 
 ### Logistic regression for odds of upfront surgery
 ```{r}
-#logistic regression
-
 #making variable levels
 df1$YEAR_OF_DIAGNOSIS <- factor(df1$YEAR_OF_DIAGNOSIS)
-df1$MED_INC_QUAR_00 <- factor(df1$MED_INC_QUAR_12)
+df1$MED_INC_QUAR_12 <- factor(df1$MED_INC_QUAR_12)
 df1$INSURANCE_STATUS <- factor(df1$INSURANCE_STATUS)
 df1$raceb <- factor(df1$raceb)
 df1$CDCC_TOTAL_BEST <- factor(df1$CDCC_TOTAL_BEST)
@@ -120,7 +115,7 @@ df1$stage3 <- relevel(df1$stage3, ref = "3")
 df1 <- df1 %>% discard(is.null)
    
 #regression
-fitlog <- glm(surg4 ~ YEAR_OF_DIAGNOSIS + MED_INC_QUAR_00  +INSURANCE_STATUS + raceb + CDCC_TOTAL_BEST + SEX + agegroup + stage3 + FACILITY_TYPE_CD + treatnotatdiag,  data = df1, family = binomial(link = logit))
+fitlog <- glm(surg4 ~ YEAR_OF_DIAGNOSIS + MED_INC_QUAR_12  +INSURANCE_STATUS + raceb + CDCC_TOTAL_BEST + SEX + agegroup + stage3 + FACILITY_TYPE_CD + treatnotatdiag,  data = df1, family = binomial(link = logit))
 
 #significance
 summary(fitlog)
@@ -132,11 +127,11 @@ summary(fitlog)
 ### Graphing proportion receiving upfront surg at different facility types over time
 ```{r}
 #Making df of just people who got upfront surg
-df1<-drop_na(df1)
 df2 <- df1 %>% filter(surg4 ==1)
 
 #renaming the fac type
 dfyear <- df1 %>% dplyr::select(YEAR_OF_DIAGNOSIS, surg4, FACILITY_TYPE_CD)
+dfyear$Facility_Type<-NA
 dfyear$Facility_Type[dfyear$FACILITY_TYPE_CD == 1] <- "Community Cancer Program"
 dfyear$Facility_Type[dfyear$FACILITY_TYPE_CD == 2] <- "Comprehensive CC Program"
 dfyear$Facility_Type[dfyear$FACILITY_TYPE_CD == 3] <- "Academic Program"
@@ -156,13 +151,14 @@ year2 <- as.data.frame(dfyearavg)
 mergedyearly <- rbind(year1,year2)
 
 #plotting upfron surg by fac type
-ggplot(width=6) + geom_line(data = mergedyearly, aes(x=YEAR_OF_DIAGNOSIS, y=ratio, group = Facility_Type,color=Facility_Type),size = 2) + labs(x="Year of Diagnosis", y = "Proportion Receiving Upfront Surgery", color = "Facility Type") +theme_test() +scale_color_brewer(palette = "Dark2") 
+ggplot() + geom_line(data = mergedyearly, aes(x=YEAR_OF_DIAGNOSIS, y=ratio, group = Facility_Type,color=Facility_Type),size = 2) + labs(x="Year of Diagnosis", y = "Proportion Receiving Upfront Surgery", color = "Facility Type") +theme_test() +scale_color_brewer(palette = "Dark2") 
 ```
 
 
-### Looking at how delays in surgery and facility switching are linked
+### Looking at how delays in surgery and facility switching are linked (note some data points are cut off in graph)
 ```{r}
 #making three groups for a surgery delay 
+df2$surggroup<-NA
 df2$surggroup[df2$DX_DEFSURG_STARTED_DAYS == 0] <- "Day zero"
 df2$surggroup[df2$DX_DEFSURG_STARTED_DAYS > 0 & df2$DX_DEFSURG_STARTED_DAYS < 28] <- "Short delay"
 df2$surggroup[df2$DX_DEFSURG_STARTED_DAYS >= 28] <- "Long Delay"
