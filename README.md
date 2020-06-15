@@ -1,2 +1,2 @@
 # RectalUpfrontSurgery
-R code and NCDB data used to produce upfront rectal surgery statistics and figures
+R code (and python version) used to produce upfront rectal surgery statistics and figures
