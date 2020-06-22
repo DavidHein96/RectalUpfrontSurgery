@@ -46,15 +46,15 @@ df1 <- df1[(
               df1$RX_SUMM_SYSTEMIC_SUR_SEQ != 6 & df1$RX_SUMM_SYSTEMIC_SUR_SEQ != 7 & df1$RX_SUMM_SYSTEMIC_SUR_SEQ != 9 &
               df1$RX_SUMM_RADIATION != 9 & df1$RX_SUMM_SURGRAD_SEQ != 6 & df1$RX_SUMM_SURGRAD_SEQ != 9 & df1$RX_SUMM_CHEMO != 88 &
               df1$RX_SUMM_CHEMO != 99
-              ),]
+          ),]
 
 #drop if not stage 2 or 3 
-df1 <- df1 %>% mutate(TNM_CLIN_STAGE_GROUP, stage3 = ifelse(   str_detect(TNM_CLIN_STAGE_GROUP,"2") == TRUE,"2","0")) 
-df1$stage3[str_detect(df1$TNM_CLIN_STAGE_GROUP,"3") == TRUE] <- "3"
+df1 <- df1 %>% mutate(stage3 = ifelse(str_detect(TNM_CLIN_STAGE_GROUP,"2"),"2","0")) 
+df1$stage3[str_detect(df1$TNM_CLIN_STAGE_GROUP,"3")] <- "3"
 df1 <- df1[!(df1$stage3 =="0"),]
 
 #Drop if not first primary 
-df1 <- df1[(df1$SEQUENCE_NUMBER =="00" | df1$SEQUENCE_NUMBER =="01"),]
+df1 <- df1%>%filter(SEQUENCE_NUMBER %in% c("00","01"))
 
 #drop if histology not adenocarcinoma 
 df1 <- df1%>%filter(HISTOLOGY %in% c(8140,8210,8260,8261,8262,8263,8480,8481))
@@ -94,25 +94,16 @@ df1$agegroup[df1$AGE>=46]<-1
 df1$agegroup[df1$AGE>=65]<-2
 
 #people who switch facility
-df1 <- df1 %>% mutate(CLASS_OF_CASE, treatnotatdiag = ifelse(CLASS_OF_CASE == 0 | CLASS_OF_CASE == 22 | CLASS_OF_CASE == 20 | CLASS_OF_CASE == 21,"Switched","Stayed") ) 
+df1 <- df1 %>% mutate(treatnotatdiag = ifelse(CLASS_OF_CASE %in% c(0,22,20,21),"Switched","Stayed"))
+
 ```
 
 
 ### Logistic regression for odds of upfront surgery
 ```{r}
-#making variable levels
-df1$YEAR_OF_DIAGNOSIS <- factor(df1$YEAR_OF_DIAGNOSIS)
-df1$MED_INC_QUAR_12 <- factor(df1$MED_INC_QUAR_12)
-df1$INSURANCE_STATUS <- factor(df1$INSURANCE_STATUS)
-df1$raceb <- factor(df1$raceb)
-df1$CDCC_TOTAL_BEST <- factor(df1$CDCC_TOTAL_BEST)
-df1$SEX  <- factor(df1$SEX )
-df1$agegroup <- factor(df1$agegroup)
-df1$stage3 <- factor(df1$stage3)
-df1$FACILITY_TYPE_CD <- factor(df1$FACILITY_TYPE_CD)
-df1$treatnotatdiag <- factor(df1$treatnotatdiag)
+#making variables factors
+df1[] <- lapply(df1, factor)
 df1$stage3 <- relevel(df1$stage3, ref = "3")
-df1 <- df1 %>% discard(is.null)
    
 #regression
 fitlog <- glm(surg4 ~ YEAR_OF_DIAGNOSIS + MED_INC_QUAR_12  +INSURANCE_STATUS + raceb + CDCC_TOTAL_BEST + SEX + agegroup + stage3 + FACILITY_TYPE_CD + treatnotatdiag,  data = df1, family = binomial(link = logit))
@@ -126,8 +117,8 @@ summary(fitlog)
 		
 ### Graphing proportion receiving upfront surg at different facility types over time
 ```{r}
-#Making df of just people who got upfront surg
-df2 <- df1 %>% filter(surg4 ==1)
+#Make surg4 numeric again so we can calculate a ratio in code below
+df1<-df1%>%mutate(surg4=as.numeric(as.character(surg4)))
 
 #renaming the fac type
 dfyear <- df1 %>% dplyr::select(YEAR_OF_DIAGNOSIS, surg4, FACILITY_TYPE_CD)
@@ -138,6 +129,7 @@ dfyear$Facility_Type[dfyear$FACILITY_TYPE_CD == 3] <- "Academic Program"
 dfyear$Facility_Type[dfyear$FACILITY_TYPE_CD == 4] <- "Integrated Network Cancer Program"
 
 #finding proportion of upfront surg by fac type
+
 dfyear <- dfyear %>% dplyr::group_by(YEAR_OF_DIAGNOSIS,Facility_Type) %>% dplyr::summarize(ratio=mean(surg4))
 
 #finding overall median per year of upfront surg
@@ -151,13 +143,18 @@ year2 <- as.data.frame(dfyearavg)
 mergedyearly <- rbind(year1,year2)
 
 #plotting upfron surg by fac type
-ggplot() + geom_line(data = mergedyearly, aes(x=YEAR_OF_DIAGNOSIS, y=ratio, group = Facility_Type,color=Facility_Type),size = 2) + labs(x="Year of Diagnosis", y = "Proportion Receiving Upfront Surgery", color = "Facility Type") +theme_test() +scale_color_brewer(palette = "Dark2") 
+ggplot() + geom_line(data = mergedyearly, aes(x=YEAR_OF_DIAGNOSIS, y=ratio, group = Facility_Type,color=Facility_Type),size = 1.8) + labs(x="Year of Diagnosis", y = "Proportion Receiving Upfront Surgery", color = "Facility Type") +theme_test() +scale_color_brewer(palette = "Dark2") 
 ```
 
 
 ### Looking at how delays in surgery and facility switching are linked (note some data points are cut off in graph)
 ```{r}
-#making three groups for a surgery delay 
+
+#Making df of just people who got upfront surg
+df2 <- df1 %>% filter(surg4 ==1)
+
+#making three groups for a surgery delay
+df2<-df2%>%mutate(DX_DEFSURG_STARTED_DAYS=as.numeric(DX_DEFSURG_STARTED_DAYS))
 df2$surggroup<-NA
 df2$surggroup[df2$DX_DEFSURG_STARTED_DAYS == 0] <- "Day zero"
 df2$surggroup[df2$DX_DEFSURG_STARTED_DAYS > 0 & df2$DX_DEFSURG_STARTED_DAYS < 28] <- "Short delay"
